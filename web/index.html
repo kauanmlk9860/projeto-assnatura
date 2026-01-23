@@ -3,91 +3,318 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Assinatura Digital</title>
+    <title>DocuSign Pro - Assinatura Digital Corporativa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Special+Elite&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>📝 Sistema de Assinatura Digital</h1>
-            <p>Processe documentos Word com assinatura digital e converta para PDF</p>
-        </header>
+    <!-- Header Corporativo -->
+    <header class="corporate-header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">📋</div>
+                <div class="logo-text">
+                    <h1>DocuSign Pro</h1>
+                    <span>Assinatura Digital Corporativa</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="themeToggle" class="theme-toggle" title="Alternar tema">
+                    <i data-lucide="sun" class="theme-icon light"></i>
+                    <i data-lucide="moon" class="theme-icon dark"></i>
+                </button>
+                <div class="security-badge">
+                    <i data-lucide="shield-check"></i>
+                    <span>Seguro & Confiável</span>
+                </div>
+            </div>
+        </div>
+    </header>
 
-        <main>
-            <form id="documentForm" enctype="multipart/form-data">
-                <!-- Upload de Documentos -->
-                <section class="upload-section">
-                    <h2>📄 Documentos Word</h2>
-                    <div class="file-upload">
-                        <input type="file" id="documents" name="documents" multiple accept=".docx" required>
-                        <label for="documents" class="file-label">
-                            <span class="file-icon">📁</span>
-                            Selecionar Documentos (.docx)
-                        </label>
-                        <div id="documentsList" class="files-list"></div>
-                    </div>
-                    
-                    <!-- Botão para testar detecção -->
-                    <div class="test-detection">
-                        <button type="button" id="testDetection" class="test-btn">
-                            🔍 Testar Detecção de Assinaturas
-                        </button>
-                        <div id="detectionResults" class="detection-results" style="display: none;"></div>
-                    </div>
-                </section>
-
-                <!-- Assinatura -->
-                <section class="signature-section">
-                    <h2>✍️ Assinatura</h2>
-                    <div class="signature-tabs">
-                        <button type="button" class="tab-btn active" data-tab="draw">Desenhar</button>
-                        <button type="button" class="tab-btn" data-tab="upload">Upload</button>
-                    </div>
-
-                    <!-- Desenhar Assinatura -->
-                    <div id="draw-tab" class="tab-content active">
-                        <div class="canvas-container">
-                            <canvas id="signatureCanvas" width="400" height="150"></canvas>
-                            <div class="canvas-controls">
-                                <button type="button" id="clearCanvas">🗑️ Limpar</button>
-                                <button type="button" id="undoCanvas">↶ Desfazer</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Upload de Assinatura -->
-                    <div id="upload-tab" class="tab-content">
-                        <div class="file-upload">
-                            <input type="file" id="signatureFile" name="signature" accept="image/*">
-                            <label for="signatureFile" class="file-label">
-                                <span class="file-icon">🖼️</span>
-                                Selecionar Imagem da Assinatura
-                            </label>
-                            <div id="signaturePreview" class="signature-preview"></div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Botão de Processar -->
-                <section class="process-section">
-                    <button type="submit" id="processBtn" class="process-btn">
-                        <span class="btn-text">🚀 Processar Documentos</span>
-                        <div class="loading-spinner"></div>
-                    </button>
-                </section>
-            </form>
-
-            <!-- Resultados -->
-            <section id="results" class="results-section" style="display: none;">
-                <h2>📥 Documentos Processados</h2>
-                <div id="downloadLinks" class="download-links"></div>
-            </section>
-
-            <!-- Mensagens -->
-            <div id="messages" class="messages"></div>
-        </main>
+    <!-- Progress Indicator -->
+    <div class="progress-container">
+        <div class="progress-steps">
+            <div class="step active" data-step="1">
+                <div class="step-number">1</div>
+                <span>Documentos</span>
+            </div>
+            <div class="step" data-step="2">
+                <div class="step-number">2</div>
+                <span>Assinatura</span>
+            </div>
+            <div class="step" data-step="3">
+                <div class="step-number">3</div>
+                <span>Revisão</span>
+            </div>
+            <div class="step" data-step="4">
+                <div class="step-number">4</div>
+                <span>Download</span>
+            </div>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill"></div>
+        </div>
     </div>
 
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Step 1: Upload Documents -->
+        <section id="step1" class="step-content active">
+            <div class="step-header">
+                <h2>Selecione seus Documentos</h2>
+                <p>Faça upload dos documentos Word (.docx) que precisam ser assinados</p>
+            </div>
+            
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">
+                    <i data-lucide="upload-cloud"></i>
+                </div>
+                <h3>Arraste arquivos aqui ou clique para selecionar</h3>
+                <p>Suporte para múltiplos arquivos .docx (máx. 10MB cada)</p>
+                <input type="file" id="documents" multiple accept=".docx" hidden>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('documents').click()">
+                    <i data-lucide="folder-open"></i>
+                    Selecionar Arquivos
+                </button>
+            </div>
+
+            <div id="filesList" class="files-preview">
+                <div class="batch-controls" id="batchControls" style="display: none;">
+                    <div class="batch-header">
+                        <h4><i data-lucide="clipboard-list"></i> Gerenciar Lote</h4>
+                        <div class="batch-actions">
+                            <button type="button" id="selectAll" class="tool-btn">
+                                <i data-lucide="check-square"></i> Todos
+                            </button>
+                            <button type="button" id="selectNone" class="tool-btn">
+                                <i data-lucide="square"></i> Nenhum
+                            </button>
+                            <button type="button" id="removeSelected" class="tool-btn danger">
+                                <i data-lucide="trash-2"></i> Remover
+                            </button>
+                        </div>
+                    </div>
+                    <div class="batch-stats">
+                        <span id="selectedCount">0 de 0 selecionados</span>
+                    </div>
+                </div>
+                <div id="documentsGrid" class="documents-grid"></div>
+            </div>
+
+            <div class="step-actions">
+                <button type="button" id="detectBtn" class="btn-outline">
+                    <i data-lucide="search"></i>
+                    Detectar Assinaturas
+                </button>
+                <button type="button" id="nextStep1" class="btn-primary" disabled>
+                    <span>Próximo: Criar Assinatura</span>
+                    <i data-lucide="arrow-right"></i>
+                </button>
+            </div>
+
+            <div id="detectionResults" class="detection-panel" style="display: none;"></div>
+        </section>
+
+        <!-- Step 2: Create Signature -->
+        <section id="step2" class="step-content">
+            <div class="step-header">
+                <h2>Crie sua Assinatura</h2>
+                <p>Desenhe sua assinatura ou faça upload de uma imagem</p>
+            </div>
+
+            <div class="signature-methods">
+                <div class="method-card active" data-method="draw">
+                    <div class="method-icon">
+                        <i data-lucide="pen-tool"></i>
+                    </div>
+                    <h3>Desenhar</h3>
+                    <p>Use o mouse ou touch</p>
+                </div>
+                <div class="method-card" data-method="upload">
+                    <div class="method-icon">
+                        <i data-lucide="image"></i>
+                    </div>
+                    <h3>Upload</h3>
+                    <p>Envie uma imagem</p>
+                </div>
+            </div>
+
+            <div class="signature-workspace">
+                <!-- Draw Method -->
+                <div id="drawMethod" class="method-content active">
+                    <div class="canvas-wrapper">
+                        <canvas id="signatureCanvas" width="500" height="200"></canvas>
+                        <div class="canvas-overlay">
+                            <span>Assine aqui</span>
+                        </div>
+                    </div>
+                    <div class="canvas-tools">
+                        <button type="button" id="clearCanvas" class="tool-btn">
+                            <i data-lucide="eraser"></i>
+                            Limpar
+                        </button>
+                        <button type="button" id="undoCanvas" class="tool-btn">
+                            <i data-lucide="undo"></i>
+                            Desfazer
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Upload Method -->
+                <div id="uploadMethod" class="method-content">
+                    <div class="upload-signature">
+                        <input type="file" id="signatureFile" accept="image/*" hidden>
+                        <div class="signature-upload-zone" onclick="document.getElementById('signatureFile').click()">
+                            <div class="upload-placeholder">
+                                <span class="upload-icon">
+                                    <i data-lucide="camera"></i>
+                                </span>
+                                <p>Clique para selecionar imagem da assinatura</p>
+                                <small>PNG, JPG ou GIF (máx. 2MB)</small>
+                            </div>
+                        </div>
+                        <div id="signaturePreview" class="signature-preview"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-actions">
+                <button type="button" id="prevStep2" class="btn-outline">
+                    <i data-lucide="arrow-left"></i>
+                    Voltar
+                </button>
+                <button type="button" id="nextStep2" class="btn-primary" disabled>
+                    <span>Próximo: Revisar</span>
+                    <i data-lucide="arrow-right"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- Step 3: Review -->
+        <section id="step3" class="step-content">
+            <div class="step-header">
+                <h2>Revisar Documentos</h2>
+                <p>Confirme os documentos e assinatura antes do processamento</p>
+            </div>
+
+            <div class="batch-info">
+                <div class="batch-summary">
+                    <span class="batch-icon">
+                        <i data-lucide="layers"></i>
+                    </span>
+                    <div>
+                        <h4>Processamento em Lote</h4>
+                        <p id="batchCount">0 documentos serão processados com a mesma assinatura</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="review-grid">
+                <div class="review-card">
+                    <h3><i data-lucide="file-text"></i> Documentos Selecionados</h3>
+                    <div id="reviewDocuments" class="review-list"></div>
+                </div>
+                <div class="review-card">
+                    <h3><i data-lucide="pen-tool"></i> Assinatura</h3>
+                    <div id="reviewSignature" class="signature-display"></div>
+                </div>
+            </div>
+
+            <div class="processing-info">
+                <div class="info-card">
+                    <span class="info-icon">
+                        <i data-lucide="shield-check"></i>
+                    </span>
+                    <div>
+                        <h4>Processamento Seguro</h4>
+                        <p>Seus documentos são processados localmente e não são armazenados</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-actions">
+                <button type="button" id="prevStep3" class="btn-outline">
+                    <i data-lucide="arrow-left"></i>
+                    Voltar
+                </button>
+                <button type="button" id="processBtn" class="btn-primary">
+                    <span class="btn-text">
+                        <i data-lucide="zap"></i>
+                        Processar Todos os Documentos
+                    </span>
+                    <div class="loading-spinner">
+                        <i data-lucide="loader-2"></i>
+                    </div>
+                </button>
+            </div>
+        </section>
+
+        <!-- Step 4: Download -->
+        <section id="step4" class="step-content">
+            <div class="step-header success">
+                <div class="success-icon">
+                    <i data-lucide="check-circle"></i>
+                </div>
+                <h2>Documentos Processados com Sucesso!</h2>
+                <p>Seus documentos foram assinados e convertidos para PDF</p>
+            </div>
+
+            <div id="downloadSection" class="download-section">
+                <div class="download-controls">
+                    <button type="button" id="downloadAll" class="btn-primary">
+                        <i data-lucide="package"></i>
+                        Baixar Todos (ZIP)
+                    </button>
+                    <button type="button" id="downloadSelected" class="btn-outline">
+                        <i data-lucide="paperclip"></i>
+                        Baixar Selecionados
+                    </button>
+                </div>
+                <div id="downloadGrid" class="download-grid"></div>
+            </div>
+
+            <div class="completion-actions">
+                <button type="button" id="newProcess" class="btn-outline">
+                    <i data-lucide="file-plus"></i>
+                    Processar Novos Documentos
+                </button>
+                <button type="button" class="btn-secondary">
+                    <i data-lucide="mail"></i>
+                    Enviar por Email
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <!-- Status Messages -->
+    <div id="notifications" class="notifications"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <div class="loading-animation">
+                <i data-lucide="loader-2"></i>
+            </div>
+            <h3>Processando Documentos em Lote...</h3>
+            <p id="processingStatus">Aplicando assinatura em todos os documentos selecionados</p>
+            <div class="progress-details">
+                <div class="processing-progress">
+                    <div class="progress-bar-small">
+                        <div class="progress-fill-small" id="batchProgress"></div>
+                    </div>
+                    <span id="progressText">0 de 0 documentos processados</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
     <script src="script.js"></script>
 </body>
 </html>

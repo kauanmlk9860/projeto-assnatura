@@ -8,7 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const DocumentProcessor = require('./services/documentProcessor');
 
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3001;
 
 // Middlewares
 app.use(cors());
@@ -62,7 +62,7 @@ app.post('/api/process-documents',
     
     try {
       const { documents, signature } = req.files;
-      const { signatureData } = req.body; // Para assinatura desenhada
+      const { signatureData, positioningData } = req.body; // Para assinatura desenhada e posicionamento
 
       if (!documents || documents.length === 0) {
         return res.status(400).json({ error: 'Nenhum documento foi enviado' });
@@ -74,6 +74,15 @@ app.post('/api/process-documents',
 
       const processor = new DocumentProcessor(tempDir);
       
+      // Verificar requisitos do sistema antes de processar
+      const systemCheck = await processor.checkSystemRequirements();
+      if (!systemCheck.ready) {
+        return res.status(500).json({
+          error: 'Sistema não está pronto',
+          details: systemCheck.recommendations.join('; ')
+        });
+      }
+      
       // Processar assinatura
       let signaturePath;
       if (signature) {
@@ -82,8 +91,11 @@ app.post('/api/process-documents',
         signaturePath = await processor.createSignatureFromCanvas(signatureData);
       }
 
+      // Processar dados de posicionamento (removido - usando apenas detecção automática)
+      const positioning = null;
+
       // Processar documentos
-      const processedFiles = await processor.processDocuments(documents, signaturePath);
+      const processedFiles = await processor.processDocuments(documents, signaturePath, positioning);
       
       // Retornar arquivos como download
       res.setHeader('Content-Type', 'application/json');
@@ -188,6 +200,29 @@ app.post('/api/detect-signatures',
     }
   }
 );
+
+// Endpoint para verificar requisitos do sistema
+app.get('/api/system-check', async (req, res) => {
+  try {
+    const tempDir = path.join(os.tmpdir(), 'doc-signature-check');
+    await fs.ensureDir(tempDir);
+    
+    const processor = new DocumentProcessor(tempDir);
+    const systemCheck = await processor.checkSystemRequirements();
+    
+    res.json({
+      success: true,
+      system: systemCheck
+    });
+    
+    await fs.remove(tempDir).catch(() => {});
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
