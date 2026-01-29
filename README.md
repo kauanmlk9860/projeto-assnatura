@@ -2,8 +2,6 @@
 
 <div align="center">
 
-<img src="web/exactsign-logo.png" alt="ExactSign Logo" width="120" height="120">
-
 **Sistema empresarial completo para processamento de documentos Word (.docx) com assinatura digital e conversão para PDF**
 
 [![Node.js](https://img.shields.io/badge/Node.js-16+-green.svg)](https://nodejs.org/)
