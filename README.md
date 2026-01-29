@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![ExactSign Logo](web/exactsign-logo.png)
+<img src="web/exactsign-logo.png" alt="ExactSign Logo" width="120" height="120">
 
 **Sistema empresarial completo para processamento de documentos Word (.docx) com assinatura digital e conversão para PDF**
 
