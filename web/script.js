@@ -196,6 +196,35 @@ class DocuSignPro {
         document.getElementById('downloadSelected')?.addEventListener('click', () => {
             this.downloadSelectedFiles();
         });
+
+        // Positioning controls
+        document.getElementById('documentSelect')?.addEventListener('change', (e) => {
+            this.selectDocument(e.target.value);
+        });
+        
+        document.getElementById('autoSuggestBtn')?.addEventListener('click', () => {
+            this.togglePositioningMode('auto');
+        });
+        
+        document.getElementById('manualModeBtn')?.addEventListener('click', () => {
+            this.togglePositioningMode('manual');
+        });
+        
+        document.getElementById('clearPositions')?.addEventListener('click', () => {
+            this.clearAllPositions();
+        });
+        
+        document.getElementById('zoomIn')?.addEventListener('click', () => {
+            this.adjustZoom(0.1);
+        });
+        
+        document.getElementById('zoomOut')?.addEventListener('click', () => {
+            this.adjustZoom(-0.1);
+        });
+        
+        document.getElementById('resetZoom')?.addEventListener('click', () => {
+            this.resetZoom();
+        });
     }
 
     setupDragAndDrop() {
@@ -654,28 +683,595 @@ class DocuSignPro {
         }
     }
 
+    preparePositioning() {
+        // Populate document selector
+        const documentSelect = document.getElementById('documentSelect');
+        const documentCounter = document.getElementById('documentCounter');
+        
+        if (documentSelect) {
+            documentSelect.innerHTML = '<option value="">Selecione um documento...</option>';
+            this.documents.forEach((doc, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = doc.name;
+                documentSelect.appendChild(option);
+            });
+        }
+        
+        if (documentCounter) {
+            documentCounter.textContent = `0 de ${this.documents.length}`;
+        }
+        
+        // Initialize positioning mode
+        this.togglePositioningMode('auto');
+        
+        // Validate step
+        this.validateStep3();
+    }
+
+    selectDocument(index) {
+        if (index === '') {
+            this.currentDocument = null;
+            this.showDocumentPreview(null);
+            return;
+        }
+        
+        this.currentDocument = parseInt(index);
+        const doc = this.documents[this.currentDocument];
+        
+        // Update counter
+        const documentCounter = document.getElementById('documentCounter');
+        if (documentCounter) {
+            documentCounter.textContent = `${this.currentDocument + 1} de ${this.documents.length}`;
+        }
+        
+        // Load document preview
+        this.loadDocumentPreview(doc);
+    }
+
+    async loadDocumentPreview(doc) {
+        const preview = document.getElementById('documentPreview');
+        if (!preview) return;
+        
+        preview.innerHTML = `
+            <div class="loading-preview" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 400px;">
+                <i data-lucide="loader-2" class="animate-spin" style="width: 32px; height: 32px; margin-bottom: 1rem;"></i>
+                <p>Carregando preview fiel do documento...</p>
+                <p style="font-size: 0.875rem; color: var(--text-secondary);">Usando mesmo fluxo de conversão do PDF</p>
+            </div>
+        `;
+        
+        // Re-initialize icons
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+        
+        try {
+            // Create FormData for document upload
+            const formData = new FormData();
+            formData.append('document', doc);
+            
+            // Request faithful preview from server
+            const response = await fetch(`${this.API_BASE}/document-preview`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                // Use the faithful HTML from server
+                preview.innerHTML = `
+                    <div class="faithful-preview" style="position: relative; overflow: auto; max-height: 800px; border: 1px solid var(--border-primary); border-radius: var(--radius-lg); background: #f5f5f5; padding: 20px;">
+                        ${result.preview.html}
+                    </div>
+                `;
+                
+                // Store preview dimensions from server response
+                this.currentPreviewDimensions = result.preview.dimensions;
+                
+                // Add click handler for precise positioning
+                const documentContainer = preview.querySelector('#documentContainer');
+                if (documentContainer) {
+                    documentContainer.addEventListener('click', (e) => {
+                        this.addPreciseSignaturePosition(e);
+                    });
+                    
+                    // Add visual guides
+                    this.addPositioningGuides(documentContainer);
+                }
+                
+                // Load existing positions
+                this.displayPreciseSignaturePositions();
+                
+                // Load suggestions if in auto mode
+                this.loadSuggestions();
+                
+            } else {
+                throw new Error(result.error || 'Erro ao gerar preview');
+            }
+            
+        } catch (error) {
+            console.error('Erro ao carregar preview:', error);
+            
+            // Fallback to simulated preview
+            preview.innerHTML = `
+                <div class="error-preview" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 400px; color: var(--error-600);">
+                    <i data-lucide="alert-triangle" style="width: 32px; height: 32px; margin-bottom: 1rem;"></i>
+                    <p>Erro ao carregar preview fiel</p>
+                    <p style="font-size: 0.875rem;">Usando preview simulado</p>
+                </div>
+            `;
+            
+            // Re-initialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+            
+            // Fallback to simulated preview after delay
+            setTimeout(() => {
+                this.loadSimulatedPreview(doc);
+            }, 2000);
+        }
+    }
+
+    loadSimulatedPreview(doc) {
+        const preview = document.getElementById('documentPreview');
+        if (!preview) return;
+        
+        preview.innerHTML = `
+            <div class="faithful-preview" style="position: relative; overflow: auto; max-height: 800px; border: 1px solid var(--border-primary); border-radius: var(--radius-lg); background: #f5f5f5; padding: 20px;">
+                <div class="document-container" id="documentContainer" style="width: 595px; min-height: 842px; background: white; margin: 0 auto; padding: 72px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.15; position: relative; box-sizing: border-box; cursor: crosshair; color: #000;">
+                    <h2 style="text-align: center; margin-bottom: 30px; font-size: 16pt;">${doc.name.replace('.docx', '')}</h2>
+                    <p style="margin: 0 0 6pt 0; text-align: justify;">Este documento representa uma visualização simulada do arquivo Word original, mantendo margens, espaçamentos e proporções exatas para posicionamento preciso da assinatura.</p>
+                    
+                    <p style="margin: 0 0 6pt 0;">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+                    
+                    <br><br>
+                    <p style="margin: 0 0 6pt 0;">Assinatura: <span style="border-bottom: 1px solid #000; display: inline-block; min-width: 200px; margin: 0 10px; height: 20px;"></span></p>
+                    <br>
+                    <p style="margin: 0 0 6pt 0;">Data: <span style="border-bottom: 1px solid #000; display: inline-block; min-width: 100px; margin: 0 10px; height: 20px;"></span></p>
+                    <br><br>
+                    <p style="margin: 0 0 6pt 0;">Nome completo: <span style="border-bottom: 1px solid #000; display: inline-block; min-width: 200px; margin: 0 10px; height: 20px;"></span></p>
+                    <br>
+                    <p style="margin: 0 0 6pt 0;">Cargo: <span style="border-bottom: 1px solid #000; display: inline-block; min-width: 150px; margin: 0 10px; height: 20px;"></span></p>
+                    
+                    <div class="signature-overlay" id="signatureOverlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></div>
+                </div>
+            </div>
+        `;
+        
+        // Store preview dimensions for coordinate conversion (PDF-accurate)
+        this.currentPreviewDimensions = {
+            width: 595,
+            height: 842,
+            margin: { top: 72, right: 72, bottom: 72, left: 72 } // 1 inch margins - matches PDF exactly
+        };
+        
+        // Add click handler for precise positioning
+        const documentContainer = preview.querySelector('#documentContainer');
+        if (documentContainer) {
+            documentContainer.addEventListener('click', (e) => {
+                this.addPreciseSignaturePosition(e);
+            });
+            
+            // Add visual guides
+            this.addPositioningGuides(documentContainer);
+        }
+        
+        // Load existing positions
+        this.displayPreciseSignaturePositions();
+        
+        // Load suggestions if in auto mode
+        this.loadSuggestions();
+    }
+
+    addPreciseSignaturePosition(e) {
+        if (this.currentDocument === null) return;
+        
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        // Convert to document coordinates using preview service logic
+        const docCoords = this.convertPreviewToDocumentCoords(x, y);
+        
+        // Validate position is within document bounds
+        const validation = this.validateSignaturePosition(docCoords.x, docCoords.y);
+        
+        if (!validation.valid) {
+            this.showNotification('Posição fora dos limites do documento', 'warning');
+            return;
+        }
+        
+        const position = {
+            id: Date.now(),
+            x: validation.adjustedX,
+            y: validation.adjustedY,
+            previewX: x,
+            previewY: y,
+            xPercent: docCoords.xPercent,
+            yPercent: docCoords.yPercent,
+            type: 'manual',
+            confirmed: true,
+            documentDimensions: this.currentPreviewDimensions
+        };
+        
+        // Add to positions map
+        if (!this.signaturePositions.has(this.currentDocument)) {
+            this.signaturePositions.set(this.currentDocument, []);
+        }
+        
+        this.signaturePositions.get(this.currentDocument).push(position);
+        
+        // Update display
+        this.displayPreciseSignaturePositions();
+        this.updatePositionsList();
+        this.validateStep3();
+        
+        this.showNotification('Posição de assinatura definida com precisão', 'success');
+    }
+
+    convertPreviewToDocumentCoords(previewX, previewY) {
+        if (!this.currentPreviewDimensions) {
+            return { x: previewX, y: previewY, xPercent: 0, yPercent: 0 };
+        }
+        
+        const dims = this.currentPreviewDimensions;
+        
+        // Account for zoom level
+        const actualX = previewX / this.zoomLevel;
+        const actualY = previewY / this.zoomLevel;
+        
+        // Convert to document-relative coordinates (remove margins)
+        const docX = actualX - dims.margin.left;
+        const docY = actualY - dims.margin.top;
+        
+        // Calculate content dimensions
+        const contentWidth = dims.width - dims.margin.left - dims.margin.right;
+        const contentHeight = dims.height - dims.margin.top - dims.margin.bottom;
+        
+        return {
+            x: Math.max(0, docX),
+            y: Math.max(0, docY),
+            xPercent: (docX / contentWidth) * 100,
+            yPercent: (docY / contentHeight) * 100
+        };
+    }
+
+    validateSignaturePosition(x, y, signatureWidth = 120, signatureHeight = 40) {
+        if (!this.currentPreviewDimensions) {
+            return { valid: true, adjustedX: x, adjustedY: y };
+        }
+        
+        const dims = this.currentPreviewDimensions;
+        const contentWidth = dims.width - dims.margin.left - dims.margin.right;
+        const contentHeight = dims.height - dims.margin.top - dims.margin.bottom;
+        
+        return {
+            valid: x >= 0 && y >= 0 && 
+                   (x + signatureWidth) <= contentWidth && 
+                   (y + signatureHeight) <= contentHeight,
+            adjustedX: Math.max(0, Math.min(x, contentWidth - signatureWidth)),
+            adjustedY: Math.max(0, Math.min(y, contentHeight - signatureHeight))
+        };
+    }
+
+    addPositioningGuides(container) {
+        // Add visual guides for precise positioning
+        const guides = document.createElement('div');
+        guides.className = 'positioning-guides';
+        guides.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        `;
+        
+        container.appendChild(guides);
+        
+        // Add crosshair on hover
+        container.addEventListener('mousemove', (e) => {
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Update crosshair position
+            guides.innerHTML = `
+                <div style="position: absolute; left: ${x}px; top: 0; width: 1px; height: 100%; background: rgba(59, 130, 246, 0.3);"></div>
+                <div style="position: absolute; left: 0; top: ${y}px; width: 100%; height: 1px; background: rgba(59, 130, 246, 0.3);"></div>
+            `;
+        });
+        
+        container.addEventListener('mouseleave', () => {
+            guides.innerHTML = '';
+        });
+    }
+
+    displayPreciseSignaturePositions() {
+        const overlay = document.getElementById('signatureOverlay');
+        if (!overlay || this.currentDocument === null) return;
+        
+        overlay.innerHTML = '';
+        
+        const positions = this.signaturePositions.get(this.currentDocument) || [];
+        
+        positions.forEach(position => {
+            const marker = document.createElement('div');
+            marker.className = 'signature-marker-precise';
+            
+            // Use stored preview coordinates for display
+            const displayX = position.previewX || position.x;
+            const displayY = position.previewY || position.y;
+            
+            marker.style.left = `${displayX - 60}px`;
+            marker.style.top = `${displayY - 20}px`;
+            marker.innerHTML = `
+                <span>Assinatura</span>
+                <div class="marker-controls" style="position: absolute; top: -25px; right: -5px; opacity: 0; transition: opacity 0.2s;">
+                    <button class="marker-btn" onclick="app.removePosition(${position.id})" style="background: var(--error-500); color: white; border: none; border-radius: 3px; width: 20px; height: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+                        <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                    </button>
+                </div>
+            `;
+            
+            // Show controls on hover
+            marker.addEventListener('mouseenter', () => {
+                const controls = marker.querySelector('.marker-controls');
+                if (controls) controls.style.opacity = '1';
+            });
+            
+            marker.addEventListener('mouseleave', () => {
+                const controls = marker.querySelector('.marker-controls');
+                if (controls) controls.style.opacity = '0';
+            });
+            
+            overlay.appendChild(marker);
+        });
+        
+        // Re-initialize icons
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    removePosition(positionId) {
+        if (this.currentDocument === null) return;
+        
+        const positions = this.signaturePositions.get(this.currentDocument) || [];
+        const filteredPositions = positions.filter(p => p.id !== positionId);
+        
+        this.signaturePositions.set(this.currentDocument, filteredPositions);
+        
+        this.displayPreciseSignaturePositions();
+        this.updatePositionsList();
+        this.validateStep3();
+        
+        this.showNotification('Posição removida', 'success');
+    }
+
+    togglePositioningMode(mode) {
+        const autoBtn = document.getElementById('autoSuggestBtn');
+        const manualBtn = document.getElementById('manualModeBtn');
+        
+        if (mode === 'auto') {
+            autoBtn?.classList.add('active');
+            manualBtn?.classList.remove('active');
+            this.loadSuggestions();
+        } else {
+            autoBtn?.classList.remove('active');
+            manualBtn?.classList.add('active');
+            this.clearSuggestions();
+        }
+    }
+
+    loadSuggestions() {
+        const suggestionsList = document.getElementById('suggestionsList');
+        if (!suggestionsList || this.currentDocument === null) return;
+        
+        // Simulate suggestions based on document content
+        const suggestions = [
+            { text: 'Linha de assinatura detectada', confidence: 0.95, x: 300, y: 400 },
+            { text: 'Campo "Assinatura:"', confidence: 0.87, x: 250, y: 450 }
+        ];
+        
+        suggestionsList.innerHTML = suggestions.map((suggestion, index) => `
+            <div class="suggestion-item">
+                <div class="suggestion-info">
+                    <div class="suggestion-text">${suggestion.text}</div>
+                    <div class="suggestion-confidence">${Math.round(suggestion.confidence * 100)}% confiança</div>
+                </div>
+                <div class="suggestion-actions">
+                    <button class="accept-btn" onclick="app.acceptSuggestion(${index})">
+                        <i data-lucide="check"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        
+        // Store suggestions for later use
+        this.currentSuggestions = suggestions;
+        
+        // Re-initialize icons
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    acceptSuggestion(index) {
+        if (!this.currentSuggestions || this.currentDocument === null) return;
+        
+        const suggestion = this.currentSuggestions[index];
+        const position = {
+            id: Date.now(),
+            x: suggestion.x,
+            y: suggestion.y,
+            type: 'suggested',
+            confirmed: true
+        };
+        
+        if (!this.signaturePositions.has(this.currentDocument)) {
+            this.signaturePositions.set(this.currentDocument, []);
+        }
+        
+        this.signaturePositions.get(this.currentDocument).push(position);
+        
+        this.displaySignaturePositions();
+        this.updatePositionsList();
+        this.validateStep3();
+        
+        this.showNotification('Sugestão aceita', 'success');
+    }
+
+    clearSuggestions() {
+        const suggestionsList = document.getElementById('suggestionsList');
+        if (suggestionsList) {
+            suggestionsList.innerHTML = '<p class="no-suggestions">Modo manual ativo</p>';
+        }
+    }
+
+    updatePositionsList() {
+        const positionsList = document.getElementById('positionsList');
+        if (!positionsList) return;
+        
+        let totalPositions = 0;
+        let html = '';
+        
+        this.documents.forEach((doc, docIndex) => {
+            const positions = this.signaturePositions.get(docIndex) || [];
+            if (positions.length > 0) {
+                html += `
+                    <div class="document-positions">
+                        <h5>${doc.name}</h5>
+                        ${positions.map(position => `
+                            <div class="position-item">
+                                <div class="position-info">
+                                    <div class="position-text">Posição ${position.type === 'manual' ? 'Manual' : 'Sugerida'}</div>
+                                    <div class="position-coords">X: ${Math.round(position.x)}, Y: ${Math.round(position.y)}</div>
+                                </div>
+                                <div class="position-actions">
+                                    <button class="remove-btn" onclick="app.removePositionFromDoc(${docIndex}, ${position.id})">
+                                        <i data-lucide="trash-2"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                totalPositions += positions.length;
+            }
+        });
+        
+        if (totalPositions === 0) {
+            positionsList.innerHTML = '<p class="no-positions">Nenhuma posição definida</p>';
+        } else {
+            positionsList.innerHTML = html;
+            
+            // Re-initialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }
+    }
+
+    removePositionFromDoc(docIndex, positionId) {
+        const positions = this.signaturePositions.get(docIndex) || [];
+        const filteredPositions = positions.filter(p => p.id !== positionId);
+        
+        this.signaturePositions.set(docIndex, filteredPositions);
+        
+        if (docIndex === this.currentDocument) {
+            this.displayPreciseSignaturePositions();
+        }
+        
+        this.updatePositionsList();
+        this.validateStep3();
+        
+        this.showNotification('Posição removida', 'success');
+    }
+
+    clearAllPositions() {
+        this.signaturePositions.clear();
+        this.displayPreciseSignaturePositions();
+        this.updatePositionsList();
+        this.validateStep3();
+        this.showNotification('Todas as posições foram removidas', 'success');
+    }
+
+    adjustZoom(delta) {
+        this.zoomLevel = Math.max(0.5, Math.min(2.0, this.zoomLevel + delta));
+        this.updateZoomDisplay();
+    }
+
+    resetZoom() {
+        this.zoomLevel = 1.0;
+        this.updateZoomDisplay();
+    }
+
+    updateZoomDisplay() {
+        const zoomLevel = document.getElementById('zoomLevel');
+        if (zoomLevel) {
+            zoomLevel.textContent = `${Math.round(this.zoomLevel * 100)}%`;
+        }
+        
+        const preview = document.getElementById('documentPreview');
+        if (preview) {
+            preview.style.transform = `scale(${this.zoomLevel})`;
+            preview.style.transformOrigin = 'top left';
+        }
+    }
+
+    validateStep3() {
+        const nextBtn = document.getElementById('nextStep3');
+        if (!nextBtn) return;
+        
+        // Check if all documents have at least one position
+        let allDocumentsHavePositions = true;
+        
+        for (let i = 0; i < this.documents.length; i++) {
+            const positions = this.signaturePositions.get(i) || [];
+            if (positions.length === 0) {
+                allDocumentsHavePositions = false;
+                break;
+            }
+        }
+        
+        nextBtn.disabled = !allDocumentsHavePositions;
+    }
+
     prepareReview() {
         // Update batch count
         const batchCount = document.getElementById('batchCount');
         if (batchCount) {
-            batchCount.textContent = `${this.documents.length} documentos serão processados com a mesma assinatura`;
+            batchCount.textContent = `${this.documents.length} documentos serão processados com detecção automática`;
         }
 
         // Review documents
         const reviewDocs = document.getElementById('reviewDocuments');
         if (reviewDocs) {
-            reviewDocs.innerHTML = this.documents.map((doc, index) => `
-                <div class="file-item" style="margin-bottom: 0.5rem;">
-                    <div class="file-icon">📄</div>
-                    <div class="file-info">
-                        <div class="file-name">${doc.name}</div>
-                        <div class="file-size">${(doc.size / 1024 / 1024).toFixed(2)} MB</div>
+            reviewDocs.innerHTML = this.documents.map((doc, index) => {
+                return `
+                    <div class="file-item" style="margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-lg);">
+                        <div class="file-icon" style="color: var(--primary-500);">
+                            <i data-lucide="file-text"></i>
+                        </div>
+                        <div class="file-info" style="flex: 1;">
+                            <div class="file-name" style="font-weight: 600; color: var(--text-primary);">${doc.name}</div>
+                            <div class="file-size" style="font-size: 0.875rem; color: var(--text-secondary);">${(doc.size / 1024 / 1024).toFixed(2)} MB</div>
+                            <div class="detection-info" style="font-size: 0.75rem; color: var(--success-600); font-weight: 600;">
+                                <i data-lucide="search" style="width: 12px; height: 12px;"></i>
+                                Detecção automática de assinaturas
+                            </div>
+                        </div>
+                        <div class="batch-indicator" style="background: var(--primary-100); color: var(--primary-700); padding: 0.25rem 0.5rem; border-radius: var(--radius-md); font-size: 0.75rem; font-weight: 600;">
+                            <span class="batch-number">${index + 1}</span>
+                        </div>
                     </div>
-                    <div class="batch-indicator">
-                        <span class="batch-number">${index + 1}</span>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // Review signature
@@ -685,7 +1281,7 @@ class DocuSignPro {
                 const canvas = document.createElement('canvas');
                 canvas.width = 300;
                 canvas.height = 120;
-                canvas.style.border = '1px solid var(--gray-300)';
+                canvas.style.border = '1px solid var(--border-primary)';
                 canvas.style.borderRadius = '8px';
                 
                 const ctx = canvas.getContext('2d');
@@ -714,10 +1310,17 @@ class DocuSignPro {
             } else if (this.signature) {
                 reviewSig.innerHTML = `
                     <img src="${this.signature}" alt="Assinatura" 
-                         style="max-width: 300px; max-height: 120px; border: 1px solid var(--gray-300); border-radius: 8px;">
+                         style="max-width: 300px; max-height: 120px; border: 1px solid var(--border-primary); border-radius: 8px;">
                 `;
             }
         }
+
+        // Re-initialize icons
+        setTimeout(() => {
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }, 100);
     }
 
     async processDocuments() {
@@ -728,6 +1331,12 @@ class DocuSignPro {
         
         if (!processBtn || !loadingOverlay) return;
 
+        // Validate documents
+        if (this.documents.length === 0) {
+            this.showNotification('Nenhum documento selecionado', 'error');
+            return;
+        }
+
         // Show loading
         processBtn.disabled = true;
         processBtn.querySelector('.loading-spinner').style.display = 'inline-block';
@@ -735,18 +1344,19 @@ class DocuSignPro {
         
         // Initialize progress
         if (progressText) {
-            progressText.textContent = `0 de ${this.documents.length} documentos processados`;
+            progressText.textContent = `Processando ${this.documents.length} documentos...`;
         }
         if (batchProgress) {
-            batchProgress.style.width = '0%';
+            batchProgress.style.width = '25%';
         }
 
         try {
-            // Create FormData with ALL documents at once
+            // Create FormData with documents
             const formData = new FormData();
             
-            // Add all documents
-            this.documents.forEach(doc => {
+            // Add documents to FormData
+            this.documents.forEach((doc, index) => {
+                console.log(`Adicionando documento ${index + 1}:`, doc.name, doc.size);
                 formData.append('documents', doc);
             });
 
@@ -754,50 +1364,45 @@ class DocuSignPro {
             if (this.signatureType === 'draw') {
                 const signatureData = this.canvas.toDataURL('image/png');
                 formData.append('signatureData', signatureData);
+                console.log('Assinatura por desenho adicionada');
             } else if (this.signature) {
+                // Convert data URL to blob
                 const response = await fetch(this.signature);
                 const blob = await response.blob();
                 formData.append('signature', blob, 'signature.png');
+                console.log('Assinatura por upload adicionada');
+            } else {
+                throw new Error('Nenhuma assinatura encontrada');
             }
 
-            // Update progress to show processing
-            if (progressText) {
-                progressText.textContent = `Processando ${this.documents.length} documentos...`;
-            }
+            // Update progress
             if (batchProgress) {
-                batchProgress.style.width = '50%';
+                batchProgress.style.width = '75%';
             }
 
-            // Process all documents in one request
+            console.log('Enviando requisição para:', `${this.API_BASE}/process-documents`);
+            
+            // Process documents
             const response = await fetch(`${this.API_BASE}/process-documents`, {
                 method: 'POST',
                 body: formData
             });
 
             const result = await response.json();
+            console.log('Resposta do servidor:', result);
 
             if (result.success) {
-                // Complete progress
-                if (progressText) {
-                    progressText.textContent = `${this.documents.length} de ${this.documents.length} documentos processados`;
-                }
-                if (batchProgress) {
-                    batchProgress.style.width = '100%';
-                }
-                
-                // Small delay to show completion
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
+                this.processedFiles = result.files;
                 this.displayResults(result.files);
                 this.goToStep(4);
-                this.showNotification(`${this.documents.length} documentos processados com sucesso!`, 'success');
+                this.showNotification(`${this.documents.length} documentos processados!`, 'success');
             } else {
-                throw new Error(result.error || 'Erro desconhecido');
+                throw new Error(result.error || result.details || 'Erro desconhecido');
             }
 
         } catch (error) {
-            console.error('Erro:', error);
-            this.showNotification(`Erro no processamento em lote: ${error.message}`, 'error');
+            console.error('Erro no processamento:', error);
+            this.showNotification(`Erro: ${error.message}`, 'error');
         } finally {
             // Hide loading
             processBtn.disabled = false;
