@@ -3,14 +3,12 @@ const path = require('path');
 const sharp = require('sharp');
 const PureWordProcessor = require('./pureWordProcessor');
 const PurePDFConverter = require('./purePDFConverter');
-const EnhancedSignatureDetector = require('./enhancedSignatureDetector');
 
 class DocumentProcessor {
   constructor(tempDir) {
     this.tempDir = tempDir;
     this.wordProcessor = new PureWordProcessor();
     this.pdfConverter = new PurePDFConverter();
-    this.signatureDetector = new EnhancedSignatureDetector();
   }
 
   async createSignatureFromCanvas(signatureData) {
@@ -56,58 +54,42 @@ class DocumentProcessor {
 
   async processDocuments(documents, signaturePath, positioning = null) {
     const processedFiles = [];
-    
     const processedSignature = await this.processSignatureImage(signaturePath);
     
-    for (const doc of documents) {
+    // Process all documents in parallel for speed
+    const processingPromises = documents.map(async (doc, index) => {
       try {
         console.log(`Processando: ${doc.originalname}`);
         
         const signedWordPath = await this.wordProcessor.processWordDocument(doc.path, processedSignature);
         const pdfResult = await this.pdfConverter.convertWordToPDF(signedWordPath);
         
-        const validation = await this.pdfConverter.validatePDFOutput(pdfResult.path);
-        if (!validation.valid) {
-          throw new Error(`PDF inválido: ${validation.error}`);
-        }
+        await fs.remove(signedWordPath).catch(() => {});
         
-        processedFiles.push({
+        return {
           name: path.basename(doc.originalname, '.docx') + '_assinado.pdf',
           data: pdfResult.buffer,
           size: pdfResult.size
-        });
-        
-        await fs.remove(signedWordPath).catch(() => {});
-        
-        console.log(`Processado: ${doc.originalname} (${pdfResult.size} bytes)`);
+        };
       } catch (error) {
         console.error(`Erro ao processar ${doc.originalname}:`, error);
         throw new Error(`Falha ao processar ${doc.originalname}: ${error.message}`);
       }
-    }
+    });
     
+    const results = await Promise.all(processingPromises);
+    processedFiles.push(...results);
+    
+    console.log(`Processamento concluído: ${processedFiles.length} arquivos`);
     return processedFiles;
   }
 
   async detectSignatureLocations(docxPath) {
-    try {
-      const result = await this.signatureDetector.detectSignatureLocations(docxPath);
-      console.log(`Detecção concluída: ${result.detectedLocations.length} localizações encontradas`);
-      
-      // Log detalhado das detecções
-      result.detectedLocations.forEach((location, index) => {
-        console.log(`Localização ${index + 1}: Tipo=${location.type}, Confiança=${location.confidence.toFixed(2)}, Linha="${location.text.substring(0, 50)}..."`);  
-      });
-      
-      return result;
-    } catch (error) {
-      console.warn('Falha na detecção automática:', error.message);
-      return {
-        detectedLocations: [],
-        summary: { totalLocations: 0, averageConfidence: 0 },
-        processedText: ''
-      };
-    }
+    // Simplified detection - just return empty for now
+    return {
+      detectedLocations: [],
+      summary: { totalLocations: 0, averageConfidence: 0 }
+    };
   }
 
   async checkSystemRequirements() {

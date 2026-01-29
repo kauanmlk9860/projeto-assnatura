@@ -6,53 +6,68 @@ const fs = require('fs-extra');
 const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 const DocumentProcessor = require('./services/documentProcessor');
+const securityConfig = require('./config/security');
+const ValidationMiddleware = require('./middleware/validation');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Middlewares
-app.use(cors());
-app.use(express.json());
+// Security middlewares
+app.use(securityConfig.helmet);
+app.use(securityConfig.general);
+app.use(cors({
+  origin: NODE_ENV === 'production' ? false : true,
+  credentials: false
+}));
+app.use(express.json({ limit: '1mb' }));
 
-// Configuração do multer para upload temporário
+// Secure multer configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const tempDir = path.join(os.tmpdir(), 'doc-signature', uuidv4());
+    const tempDir = path.join(os.tmpdir(), 'exactsign', uuidv4());
     fs.ensureDirSync(tempDir);
     req.tempDir = tempDir;
     cb(null, tempDir);
   },
   filename: (req, file, cb) => {
-    cb(null, file.originalname);
+    const sanitized = ValidationMiddleware.sanitizeFilename(file.originalname);
+    cb(null, sanitized);
   }
 });
 
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (file.fieldname === 'documents') {
-      if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        cb(null, true);
+    try {
+      if (file.fieldname === 'documents') {
+        if (securityConfig.allowedMimeTypes.documents.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Apenas arquivos .docx são permitidos'));
+        }
+      } else if (file.fieldname === 'signature') {
+        if (securityConfig.allowedMimeTypes.images.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Apenas imagens PNG/JPG são permitidas'));
+        }
       } else {
-        cb(new Error('Apenas arquivos .docx são permitidos para documentos'));
+        cb(new Error('Campo não reconhecido'));
       }
-    } else if (file.fieldname === 'signature') {
-      if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-      } else {
-        cb(new Error('Apenas imagens são permitidas para assinatura'));
-      }
-    } else {
-      cb(new Error('Campo de arquivo não reconhecido'));
+    } catch (error) {
+      cb(error);
     }
   },
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB
+    fileSize: securityConfig.maxFileSizes.document,
+    files: 10
   }
 });
 
-// Endpoint principal para processamento
+// Main processing endpoint
 app.post('/api/process-documents', 
+  securityConfig.upload,
   upload.fields([
     { name: 'documents', maxCount: 10 },
     { name: 'signature', maxCount: 1 }
@@ -61,150 +76,70 @@ app.post('/api/process-documents',
     let tempDir = req.tempDir;
     
     try {
-      const { documents, signature } = req.files;
-      const { signatureData, positioningData } = req.body; // Para assinatura desenhada e posicionamento
+      const { documents, signature } = req.files || {};
+      const { signatureData } = req.body;
 
-      if (!documents || documents.length === 0) {
-        return res.status(400).json({ error: 'Nenhum documento foi enviado' });
+      if (!documents?.length) {
+        return res.status(400).json({ error: 'Nenhum documento enviado' });
       }
 
       if (!signature && !signatureData) {
-        return res.status(400).json({ error: 'Assinatura é obrigatória' });
+        return res.status(400).json({ error: 'Assinatura obrigatória' });
+      }
+
+      // Validate documents
+      for (const doc of documents) {
+        await ValidationMiddleware.validateDocumentIntegrity(doc.path);
       }
 
       const processor = new DocumentProcessor(tempDir);
       
-      // Verificar requisitos do sistema antes de processar
-      const systemCheck = await processor.checkSystemRequirements();
-      if (!systemCheck.ready) {
-        return res.status(500).json({
-          error: 'Sistema não está pronto',
-          details: systemCheck.recommendations.join('; ')
-        });
-      }
-      
-      // Processar assinatura
       let signaturePath;
       if (signature) {
         signaturePath = signature[0].path;
       } else {
+        ValidationMiddleware.validateSignatureData(signatureData);
         signaturePath = await processor.createSignatureFromCanvas(signatureData);
       }
 
-      // Processar dados de posicionamento (removido - usando apenas detecção automática)
-      const positioning = null;
-
-      // Processar documentos
-      const processedFiles = await processor.processDocuments(documents, signaturePath, positioning);
+      const processedFiles = await processor.processDocuments(documents, signaturePath);
       
-      // Retornar arquivos como download
-      res.setHeader('Content-Type', 'application/json');
       res.json({
         success: true,
         files: processedFiles.map(file => ({
           name: file.name,
-          data: file.data.toString('base64')
+          data: file.data.toString('base64'),
+          size: file.size
         }))
       });
 
     } catch (error) {
-      console.error('Erro no processamento:', error);
+      console.error('Processing error:', error.message);
       res.status(500).json({ 
-        error: 'Erro interno do servidor',
-        details: error.message 
+        error: 'Erro no processamento',
+        details: NODE_ENV === 'development' ? error.message : 'Erro interno'
       });
     } finally {
-      // Limpar arquivos temporários
       if (tempDir) {
-        setTimeout(() => {
-          fs.remove(tempDir).catch(console.error);
-        }, 1000);
+        ValidationMiddleware.cleanupTempFiles(tempDir);
       }
     }
   }
 );
 
-// Endpoint para receber assinatura desenhada
-app.post('/api/signature-canvas', express.raw({ type: 'image/*', limit: '2mb' }), (req, res) => {
-  try {
-    const tempDir = path.join(os.tmpdir(), 'doc-signature', uuidv4());
-    fs.ensureDirSync(tempDir);
-    
-    const signaturePath = path.join(tempDir, 'signature.png');
-    fs.writeFileSync(signaturePath, req.body);
-    
-    res.json({ 
-      success: true, 
-      signaturePath,
-      tempDir 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    version: '2.0.0',
+    timestamp: new Date().toISOString() 
+  });
 });
 
-// Endpoint para testar detecção de assinaturas
-app.post('/api/detect-signatures', 
-  upload.single('document'), 
-  async (req, res) => {
-    let tempDir = req.tempDir;
-    
-    try {
-      const document = req.file;
-      
-      if (!document) {
-        return res.status(400).json({ error: 'Nenhum documento foi enviado' });
-      }
-      
-      const SignatureDetector = require('./services/signatureDetector');
-      const detector = new SignatureDetector();
-      
-      const locations = await detector.detectSignatureLocations(document.path);
-      
-      res.json({
-        success: true,
-        document: document.originalname,
-        detectedLocations: locations.map(loc => ({
-          type: loc.type || 'underline',
-          lineIndex: loc.lineIndex,
-          lineParagraph: loc.lineParagraph,
-          nameParagraph: loc.nameParagraph,
-          confidence: Math.round(loc.confidence * 100) / 100,
-          context: {
-            before: loc.context.before.slice(0, 2),
-            after: loc.context.after.slice(0, 2)
-          }
-        })),
-        summary: {
-          totalLocations: locations.length,
-          averageConfidence: Math.round((locations.reduce((sum, loc) => sum + loc.confidence, 0) / locations.length) * 100) / 100,
-          highConfidenceCount: locations.filter(loc => loc.confidence >= 0.8).length,
-          underlineCount: locations.filter(loc => loc.type === 'underline').length,
-          textCount: locations.filter(loc => loc.type === 'text').length
-        }
-      });
-      
-    } catch (error) {
-      console.error('Erro na detecção:', error);
-      res.status(500).json({ 
-        error: 'Erro na detecção de assinaturas',
-        details: error.message 
-      });
-    } finally {
-      // Limpar arquivos temporários
-      if (tempDir) {
-        setTimeout(() => {
-          fs.remove(tempDir).catch(console.error);
-        }, 1000);
-      }
-    }
-  }
-);
-
-// Endpoint para verificar requisitos do sistema
+// System requirements check
 app.get('/api/system-check', async (req, res) => {
   try {
-    const tempDir = path.join(os.tmpdir(), 'doc-signature-check');
+    const tempDir = path.join(os.tmpdir(), 'exactsign-check');
     await fs.ensureDir(tempDir);
     
     const processor = new DocumentProcessor(tempDir);
@@ -219,19 +154,53 @@ app.get('/api/system-check', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'System check failed'
     });
   }
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+// Error handling
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Arquivo muito grande' });
+    }
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'Muitos arquivos' });
+    }
+  }
+  
+  res.status(500).json({ 
+    error: 'Erro interno',
+    details: NODE_ENV === 'development' ? error.message : undefined
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Endpoint não encontrado' });
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Encerrando servidor...');
+  process.exit(0);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 API rodando na porta ${PORT}`);
-  console.log(`📋 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🚀 ExactSign API v2.0.0 - Porta ${PORT}`);
+  console.log(`📋 Health: http://localhost:${PORT}/api/health`);
+  console.log(`🔒 Modo: ${NODE_ENV}`);
 });
 
 module.exports = app;

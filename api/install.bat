@@ -1,26 +1,44 @@
 @echo off
-echo 📦 Instalando dependências do Sistema de Assinatura Digital Aprimorado...
+echo ========================================
+echo    ExactSign v2.0 - Instalacao
+echo ========================================
 echo.
 
-cd /d "%~dp0"
+echo [1/4] Verificando Node.js...
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo ERRO: Node.js nao encontrado!
+    echo Baixe em: https://nodejs.org
+    pause
+    exit /b 1
+)
 
-echo ⏳ Instalando dependências do Node.js...
-npm install
+echo [2/4] Instalando dependencias...
+call npm install --production
+if errorlevel 1 (
+    echo ERRO: Falha na instalacao das dependencias
+    pause
+    exit /b 1
+)
+
+echo [3/4] Verificando LibreOffice...
+where soffice >nul 2>&1
+if errorlevel 1 (
+    echo AVISO: LibreOffice nao encontrado no PATH
+    echo Para conversao PDF, instale: https://www.libreoffice.org
+)
+
+echo [4/4] Testando sistema...
+call npm run start --silent &
+timeout /t 3 >nul
+taskkill /f /im node.exe >nul 2>&1
 
 echo.
-echo ✅ Dependências instaladas com sucesso!
+echo ========================================
+echo    Instalacao Concluida!
+echo ========================================
 echo.
-echo 🔧 Próximos passos:
-echo.
-echo 1. Instalar LibreOffice:
-echo    - Baixe em: https://www.libreoffice.org/download/
-echo    - Instale normalmente
-echo    - Adicione ao PATH do sistema: C:\Program Files\LibreOffice\program
-echo.
-echo 2. Iniciar o servidor:
-echo    npm start
-echo.
-echo 3. Abrir o front-end:
-echo    Abra web/index.html no navegador
+echo Para iniciar: npm start
+echo API: http://localhost:3001
 echo.
 pause

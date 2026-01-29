@@ -1,23 +1,22 @@
 {
-  "name": "document-signature-api",
-  "version": "1.0.0",
-  "description": "API para processamento de documentos Word com assinatura digital",
+  "name": "exactsign-api",
+  "version": "2.0.0",
+  "description": "ExactSign - Sistema Profissional de Assinatura Digital",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "prod": "NODE_ENV=production node server.js"
   },
   "dependencies": {
-    "adm-zip": "^0.5.10",
     "cors": "^2.8.5",
-    "docx": "^8.5.0",
     "express": "^4.18.2",
+    "express-rate-limit": "^7.5.1",
     "fs-extra": "^11.2.0",
-    "html-pdf": "^3.0.1",
+    "helmet": "^7.2.0",
     "jszip": "^3.10.1",
-    "mammoth": "^1.6.0",
+    "mammoth": "^1.11.0",
     "multer": "^1.4.5-lts.1",
-    "pdfkit": "^0.15.0",
     "puppeteer": "^21.5.2",
     "sharp": "^0.33.0",
     "uuid": "^9.0.1",
@@ -25,5 +24,16 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
-  }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "digital-signature",
+    "document-processing",
+    "pdf",
+    "docx"
+  ],
+  "author": "ExactSign",
+  "license": "Commercial"
 }

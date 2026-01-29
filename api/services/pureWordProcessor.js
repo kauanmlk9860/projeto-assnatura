@@ -3,11 +3,9 @@ const fs = require('fs-extra');
 const path = require('path');
 const xml2js = require('xml2js');
 const sharp = require('sharp');
-const EnhancedSignatureDetector = require('./enhancedSignatureDetector');
 
 class PureWordProcessor {
   constructor() {
-    this.signatureDetector = new EnhancedSignatureDetector();
     this.signatureMarkers = [
       /_{5,}/g,
       /ASSINATURA/gi,
@@ -23,13 +21,11 @@ class PureWordProcessor {
       const docxBuffer = await fs.readFile(docxPath);
       const zip = await JSZip.loadAsync(docxBuffer);
       
-      // Detectar localizações de assinatura com precisão
-      const detectionResult = await this.signatureDetector.detectSignatureLocations(docxPath);
-      
-      const processedSignature = await this.processSignatureImage(signaturePath, detectionResult);
+      // Rápida detecção e processamento
+      const processedSignature = await this.processSignatureImage(signaturePath);
       
       const documentXml = await zip.file('word/document.xml').async('text');
-      const modifiedXml = await this.insertSignatureIntoXml(documentXml, processedSignature, detectionResult);
+      const modifiedXml = await this.insertSignatureIntoXml(documentXml, processedSignature);
       
       zip.file('word/document.xml', modifiedXml);
       
@@ -48,31 +44,12 @@ class PureWordProcessor {
     }
   }
 
-  async processSignatureImage(signaturePath, detectionResult = null) {
+  async processSignatureImage(signaturePath) {
     try {
       const processedPath = path.join(path.dirname(signaturePath), 'processed_signature.png');
       
-      // Calcular dimensões baseadas na detecção
-      let targetWidth = 200;
-      let targetHeight = 80;
-      
-      if (detectionResult && detectionResult.detectedLocations.length > 0) {
-        const primaryLocation = detectionResult.detectedLocations[0];
-        const scaleFactors = primaryLocation.positioning.scaleFactors;
-        
-        targetWidth = Math.round(targetWidth * scaleFactors.width);
-        targetHeight = Math.round(targetHeight * scaleFactors.height);
-        
-        // Ajustar baseado no comprimento da linha detectada
-        if (primaryLocation.lineLength > 20) {
-          targetWidth = Math.min(targetWidth * 1.2, 300);
-        } else if (primaryLocation.lineLength < 10) {
-          targetWidth = Math.max(targetWidth * 0.8, 120);
-        }
-      }
-      
       await sharp(signaturePath)
-        .resize(targetWidth, targetHeight, {
+        .resize(200, 80, {
           fit: 'inside',
           withoutEnlargement: true,
           background: { r: 255, g: 255, b: 255, alpha: 0 }
@@ -82,16 +59,15 @@ class PureWordProcessor {
       
       return { 
         path: processedPath, 
-        width: targetWidth, 
-        height: targetHeight,
-        detectionBased: !!detectionResult
+        width: 200, 
+        height: 80
       };
     } catch (error) {
       throw new Error(`Erro ao processar assinatura: ${error.message}`);
     }
   }
 
-  async insertSignatureIntoXml(documentXml, signatureInfo, detectionResult = null) {
+  async insertSignatureIntoXml(documentXml, signatureInfo) {
     try {
       const parser = new xml2js.Parser({ explicitArray: false });
       const builder = new xml2js.Builder({ explicitArray: false, renderOpts: { pretty: false } });
@@ -102,44 +78,32 @@ class PureWordProcessor {
       
       let insertionsMade = 0;
       
-      // Usar detecção avançada se disponível
-      if (detectionResult && detectionResult.detectedLocations.length > 0) {
-        for (const location of detectionResult.detectedLocations) {
-          if (location.paragraphIndex < paragraphs.length) {
-            const paragraph = paragraphs[location.paragraphIndex];
-            const signatureRun = this.createPreciseSignatureRun(signatureInfo, location);
-            
-            if (!Array.isArray(paragraph['w:r'])) {
-              paragraph['w:r'] = paragraph['w:r'] ? [paragraph['w:r']] : [];
-            }
-            
-            // Inserir assinatura no início do parágrafo (sobre a linha)
-            paragraph['w:r'].unshift(signatureRun);
-            insertionsMade++;
-          }
-        }
-      } else {
-        // Fallback para detecção simples
-        for (let i = 0; i < paragraphs.length; i++) {
-          const paragraph = paragraphs[i];
+      // Busca rápida por marcadores
+      for (let i = 0; i < paragraphs.length; i++) {
+        const paragraph = paragraphs[i];
+        
+        if (paragraph && paragraph['w:r']) {
+          const runs = Array.isArray(paragraph['w:r']) ? paragraph['w:r'] : [paragraph['w:r']];
           
-          if (paragraph && paragraph['w:r']) {
-            const runs = Array.isArray(paragraph['w:r']) ? paragraph['w:r'] : [paragraph['w:r']];
+          for (let j = 0; j < runs.length; j++) {
+            const run = runs[j];
             
-            for (let j = 0; j < runs.length; j++) {
-              const run = runs[j];
+            if (run['w:t']) {
+              const text = typeof run['w:t'] === 'string' ? run['w:t'] : run['w:t']['_'];
               
-              if (run['w:t']) {
-                const text = typeof run['w:t'] === 'string' ? run['w:t'] : run['w:t']['_'];
+              if (this.isSignatureLocation(text)) {
+                const isIsolatedLine = /^\s*_{5,}\s*$/.test(text);
                 
-                if (this.isSignatureLocation(text)) {
+                if (isIsolatedLine) {
+                  paragraph['w:r'] = [this.createSignatureRun(signatureInfo)];
+                } else {
                   const signatureRun = this.createSignatureRun(signatureInfo);
-                  
                   if (!Array.isArray(paragraph['w:r'])) paragraph['w:r'] = [paragraph['w:r']];
                   paragraph['w:r'].splice(j, 0, signatureRun);
-                  insertionsMade++;
-                  break;
                 }
+                
+                insertionsMade++;
+                break;
               }
             }
           }
@@ -159,11 +123,43 @@ class PureWordProcessor {
     return this.signatureMarkers.some(marker => marker.test(text));
   }
 
+  replaceSignatureLine(paragraph, location) {
+    if (!paragraph['w:r']) return;
+    
+    const runs = Array.isArray(paragraph['w:r']) ? paragraph['w:r'] : [paragraph['w:r']];
+    
+    // Encontrar e neutralizar runs com underscores
+    runs.forEach(run => {
+      if (run['w:t']) {
+        const text = typeof run['w:t'] === 'string' ? run['w:t'] : run['w:t']['_'];
+        if (text && /_+/.test(text)) {
+          // Substituir underscores por espaços transparentes
+          const replacementText = ' '.repeat(Math.min(text.length, 3));
+          if (typeof run['w:t'] === 'string') {
+            run['w:t'] = replacementText;
+          } else {
+            run['w:t']['_'] = replacementText;
+          }
+          
+          // Adicionar formatação para tornar o texto quase invisível
+          if (!run['w:rPr']) run['w:rPr'] = {};
+          run['w:rPr']['w:color'] = { '$': { 'w:val': 'FFFFFF' } }; // Branco
+          run['w:rPr']['w:sz'] = { '$': { 'w:val': '2' } }; // Tamanho mínimo
+        }
+      }
+    });
+  }
+
   createPreciseSignatureRun(signatureInfo, location) {
     const positioning = location.positioning;
     
-    // Calcular offset vertical em EMUs (English Metric Units)
-    const verticalOffsetEMU = positioning.verticalOffset * 635; // Convert pixels to EMU
+    // Calcular offset vertical mais preciso
+    const baseOffset = positioning.verticalOffset * 635; // Convert pixels to EMU
+    const finalOffset = positioning.shouldReplaceLine ? 0 : baseOffset;
+    
+    // Calcular dimensões finais
+    const finalWidth = Math.round(signatureInfo.width * positioning.scaleFactors.width);
+    const finalHeight = Math.round(signatureInfo.height * positioning.scaleFactors.height);
     
     return {
       'w:drawing': {
@@ -176,8 +172,8 @@ class PureWordProcessor {
           },
           'wp:extent': {
             '$': {
-              'cx': (signatureInfo.width * 9525).toString(),
-              'cy': (signatureInfo.height * 9525).toString()
+              'cx': (finalWidth * 9525).toString(),
+              'cy': (finalHeight * 9525).toString()
             }
           },
           'wp:docPr': { '$': { 'id': '1', 'name': 'Signature' } },
@@ -200,13 +196,13 @@ class PureWordProcessor {
                     'a:off': { 
                       '$': { 
                         'x': '0', 
-                        'y': verticalOffsetEMU.toString() 
+                        'y': finalOffset.toString() 
                       } 
                     },
                     'a:ext': {
                       '$': {
-                        'cx': (signatureInfo.width * 9525).toString(),
-                        'cy': (signatureInfo.height * 9525).toString()
+                        'cx': (finalWidth * 9525).toString(),
+                        'cy': (finalHeight * 9525).toString()
                       }
                     }
                   },
@@ -221,7 +217,7 @@ class PureWordProcessor {
   }
 
   createSignatureRun(signatureInfo) {
-    // Fallback method for simple detection
+    // Fallback melhorado para detecção simples
     return {
       'w:drawing': {
         'wp:inline': {
@@ -249,7 +245,7 @@ class PureWordProcessor {
                 },
                 'pic:spPr': {
                   'a:xfrm': {
-                    'a:off': { '$': { 'x': '0', 'y': '-6350' } }, // Slight upward offset
+                    'a:off': { '$': { 'x': '0', 'y': '0' } }, // Posicionamento natural
                     'a:ext': {
                       '$': {
                         'cx': (signatureInfo.width * 9525).toString(),
@@ -268,6 +264,7 @@ class PureWordProcessor {
   }
 
   async updateRelationships(zip) {
+    try {
       const relsPath = 'word/_rels/document.xml.rels';
       let relsXml = await zip.file(relsPath).async('text');
       
