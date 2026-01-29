@@ -48,13 +48,18 @@ class PureWordProcessor {
     try {
       const processedPath = path.join(path.dirname(signaturePath), 'processed_signature.png');
       
+      // Otimizações do Sharp para velocidade
       await sharp(signaturePath)
         .resize(200, 80, {
           fit: 'inside',
           withoutEnlargement: true,
           background: { r: 255, g: 255, b: 255, alpha: 0 }
         })
-        .png({ quality: 100 })
+        .png({ 
+          quality: 90, // Reduzido de 100 para 90 para velocidade
+          compressionLevel: 6, // Otimizado para velocidade
+          progressive: false
+        })
         .toFile(processedPath);
       
       return { 
@@ -69,8 +74,19 @@ class PureWordProcessor {
 
   async insertSignatureIntoXml(documentXml, signatureInfo) {
     try {
-      const parser = new xml2js.Parser({ explicitArray: false });
-      const builder = new xml2js.Builder({ explicitArray: false, renderOpts: { pretty: false } });
+      // Parser otimizado para velocidade
+      const parser = new xml2js.Parser({ 
+        explicitArray: false,
+        mergeAttrs: false,
+        normalize: false,
+        normalizeTags: false,
+        trim: true
+      });
+      const builder = new xml2js.Builder({ 
+        explicitArray: false, 
+        renderOpts: { pretty: false, indent: '', newline: '' },
+        xmldec: { version: '1.0', encoding: 'UTF-8', standalone: true }
+      });
       
       const doc = await parser.parseStringPromise(documentXml);
       const body = doc['w:document']['w:body'];
@@ -78,8 +94,8 @@ class PureWordProcessor {
       
       let insertionsMade = 0;
       
-      // Busca rápida por marcadores
-      for (let i = 0; i < paragraphs.length; i++) {
+      // Busca otimizada por marcadores
+      for (let i = 0; i < paragraphs.length && insertionsMade < 10; i++) { // Limite para evitar processamento excessivo
         const paragraph = paragraphs[i];
         
         if (paragraph && paragraph['w:r']) {

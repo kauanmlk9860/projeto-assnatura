@@ -56,31 +56,66 @@ class DocumentProcessor {
     const processedFiles = [];
     const processedSignature = await this.processSignatureImage(signaturePath);
     
-    // Process all documents in parallel for speed
-    const processingPromises = documents.map(async (doc, index) => {
-      try {
-        console.log(`Processando: ${doc.originalname}`);
+    // Processar em lotes menores para evitar timeouts
+    const BATCH_SIZE = 3; // Reduzido de 5 para 3
+    const batches = [];
+    
+    for (let i = 0; i < documents.length; i += BATCH_SIZE) {
+      batches.push(documents.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`Processando ${documents.length} documentos em ${batches.length} lotes de ${BATCH_SIZE}`);
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`Processando lote ${batchIndex + 1}/${batches.length} (${batch.length} documentos)`);
+      
+      const batchPromises = batch.map(async (doc, index) => {
+        const maxRetries = 2;
+        let lastError;
         
-        const signedWordPath = await this.wordProcessor.processWordDocument(doc.path, processedSignature);
-        const pdfResult = await this.pdfConverter.convertWordToPDF(signedWordPath);
+        for (let retry = 0; retry <= maxRetries; retry++) {
+          try {
+            const globalIndex = batchIndex * BATCH_SIZE + index;
+            console.log(`[${globalIndex + 1}/${documents.length}] Processando: ${doc.originalname} (tentativa ${retry + 1})`);
+            
+            const signedWordPath = await this.wordProcessor.processWordDocument(doc.path, processedSignature);
+            const pdfResult = await this.pdfConverter.convertWordToPDF(signedWordPath);
+            
+            // Limpeza imediata do arquivo Word temporário
+            await fs.remove(signedWordPath).catch(() => {});
+            
+            return {
+              name: path.basename(doc.originalname, '.docx') + '_assinado.pdf',
+              data: pdfResult.buffer,
+              size: pdfResult.size
+            };
+          } catch (error) {
+            lastError = error;
+            console.error(`Erro na tentativa ${retry + 1} para ${doc.originalname}:`, error.message);
+            
+            if (retry < maxRetries) {
+              console.log(`Tentando novamente em 2 segundos...`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+        }
         
-        await fs.remove(signedWordPath).catch(() => {});
-        
-        return {
-          name: path.basename(doc.originalname, '.docx') + '_assinado.pdf',
-          data: pdfResult.buffer,
-          size: pdfResult.size
-        };
-      } catch (error) {
-        console.error(`Erro ao processar ${doc.originalname}:`, error);
-        throw new Error(`Falha ao processar ${doc.originalname}: ${error.message}`);
+        throw new Error(`Falha ao processar ${doc.originalname} após ${maxRetries + 1} tentativas: ${lastError.message}`);
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      processedFiles.push(...batchResults);
+      
+      console.log(`Lote ${batchIndex + 1} concluído. Total processado: ${processedFiles.length}/${documents.length}`);
+      
+      // Pequena pausa entre lotes para evitar sobrecarga
+      if (batchIndex < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    });
+    }
     
-    const results = await Promise.all(processingPromises);
-    processedFiles.push(...results);
-    
-    console.log(`Processamento concluído: ${processedFiles.length} arquivos`);
+    console.log(`Processamento concluído: ${processedFiles.length} arquivos em lotes otimizados`);
     return processedFiles;
   }
 

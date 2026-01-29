@@ -11,7 +11,7 @@ const createRateLimit = (windowMs, max, message) => rateLimit({
 
 const securityConfig = {
   general: createRateLimit(15 * 60 * 1000, 100, 'Muitas requisições. Tente novamente em 15 minutos.'),
-  upload: createRateLimit(5 * 60 * 1000, 10, 'Limite de uploads excedido. Tente novamente em 5 minutos.'),
+  upload: createRateLimit(15 * 60 * 1000, 3, 'Limite de uploads excedido. Tente novamente em 15 minutos.'),
   
   allowedMimeTypes: {
     documents: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],

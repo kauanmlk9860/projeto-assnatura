@@ -20,7 +20,8 @@ app.use(cors({
   origin: NODE_ENV === 'production' ? false : true,
   credentials: false
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '50mb' })); // Aumentado para suportar lotes grandes
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Secure multer configuration
 const storage = multer.diskStorage({
@@ -61,15 +62,23 @@ const upload = multer({
   },
   limits: {
     fileSize: securityConfig.maxFileSizes.document,
-    files: 10
+    files: 150,
+    fieldSize: 50 * 1024 * 1024,
+    fieldNameSize: 1000,
+    fields: 10
   }
 });
 
 // Main processing endpoint
 app.post('/api/process-documents', 
   securityConfig.upload,
+  (req, res, next) => {
+    req.setTimeout(600000);
+    res.setTimeout(600000);
+    next();
+  },
   upload.fields([
-    { name: 'documents', maxCount: 10 },
+    { name: 'documents', maxCount: 150 },
     { name: 'signature', maxCount: 1 }
   ]), 
   async (req, res) => {
@@ -161,13 +170,22 @@ app.get('/api/system-check', async (req, res) => {
 
 // Error handling
 app.use((error, req, res, next) => {
+  console.error('Erro no servidor:', error);
+  
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'Arquivo muito grande' });
+      return res.status(400).json({ error: 'Arquivo muito grande (máx. 10MB por arquivo)' });
     }
     if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ error: 'Muitos arquivos' });
+      return res.status(400).json({ error: `Muitos arquivos (máx. 150 arquivos por lote)` });
     }
+    if (error.code === 'LIMIT_FIELD_COUNT') {
+      return res.status(400).json({ error: 'Muitos campos no formulário' });
+    }
+    if (error.code === 'LIMIT_FIELD_SIZE') {
+      return res.status(400).json({ error: 'Campo muito grande' });
+    }
+    return res.status(400).json({ error: `Erro de upload: ${error.message}` });
   }
   
   res.status(500).json({ 
